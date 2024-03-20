@@ -4,12 +4,16 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/gorilla/mux"
-	"go-crud/models"
 	"log"
 	"net/http"
-	"os"
-	"strconv"
+	"time"
+	"whats-app-clone-service/models"
+	"whats-app-clone-service/utils"
+
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/google/uuid"
+
+	_ "golang.org/x/crypto/bcrypt"
 )
 
 // response format
@@ -18,36 +22,37 @@ type response struct {
 	Message string `json:"message,omitempty"`
 }
 
+type loginResponse struct {
+	Token   string `json:"token,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
 // create connection with postgres db
+
 func createConnection() *sql.DB {
-	// load .env file
-	err := godotenv.Load(".env")
+
+	db, err := sql.Open("mysql", "root:root@tcp(127.0.0.1:3306)/wa_clone_db")
 
 	if err != nil {
-		log.Fatalf("Error loading .env file")
+		panic(err.Error())
 	}
 
-	// Open the connection
-	db, err := sql.Open("postgres", os.Getenv("POSTGRES_URL"))
+	// defer db.Close()
 
-	if err != nil {
-		panic(err)
+	db.SetConnMaxLifetime(time.Minute * 3)
+	db.SetMaxIdleConns(20)
+	db.SetMaxOpenConns(20)
+
+	if err := db.Ping(); err != nil {
+		log.Fatalln(err)
 	}
 
-	// check the connection
-	err = db.Ping()
-
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Println("Successfully connected!")
-	// return the connection
+	fmt.Println("Connection successful!")
 	return db
 }
 
 // CreateUser create a user in the postgres db
-func CreateUser(w http.ResponseWriter, r *http.Request) {
+func RegisterUser(w http.ResponseWriter, r *http.Request) {
 	// set the header to content type x-www-form-urlencoded
 	// Allow all origin to handle cors issue
 	w.Header().Set("Context-Type", "application/x-www-form-urlencoded")
@@ -56,7 +61,7 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
 	// create an empty user of type models.User
-	var user models.User
+	var user models.UserRegister
 
 	// decode the json request to user
 	err := json.NewDecoder(r.Body).Decode(&user)
@@ -66,7 +71,7 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// call insert user function and pass the user
-	insertID := insertUser(user)
+	insertID := register(user)
 
 	// format a response object
 	res := response{
@@ -78,291 +83,172 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(res)
 }
 
-// GetUser will return a single user by its id
-func GetUser(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Context-Type", "application/x-www-form-urlencoded")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	// get the userid from the request params, key is "id"
-	params := mux.Vars(r)
-
-	// convert the id type from string to int
-	id, err := strconv.Atoi(params["id"])
-
-	if err != nil {
-		log.Fatalf("Unable to convert the string into int.  %v", err)
-	}
-
-	// call the getUser function with user id to retrieve a single user
-	user, err := getUser(int64(id))
-
-	if err != nil {
-		log.Fatalf("Unable to get user. %v", err)
-	}
-
-	// send the response
-	json.NewEncoder(w).Encode(user)
-}
-
 // GetAllUser will return all the users
 func GetAllUser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Context-Type", "application/x-www-form-urlencoded")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	// get all the users in the db
-	users, err := getAllUsers()
+	users, err := getJSON("SELECT id, username, phone, image from users")
 
 	if err != nil {
 		log.Fatalf("Unable to get all user. %v", err)
 	}
 
 	// send all the users as response
-	json.NewEncoder(w).Encode(users)
+	// json.NewEncoder(w).Encode(users)
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(users)
 }
 
-// UpdateUser update user's detail in the postgres db
-func UpdateUser(w http.ResponseWriter, r *http.Request) {
-
-	w.Header().Set("Content-Type", "application/x-www-form-urlencoded")
+func Login(w http.ResponseWriter, r *http.Request) {
+	// set the header to content type x-www-form-urlencoded
+	// Allow all origin to handle cors issue
+	w.Header().Set("Context-Type", "application/x-www-form-urlencoded")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "PUT")
+	w.Header().Set("Access-Control-Allow-Methods", "POST")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
-	// get the userid from the request params, key is "id"
-	params := mux.Vars(r)
-
-	// convert the id type from string to int
-	id, err := strconv.Atoi(params["id"])
-
-	if err != nil {
-		log.Fatalf("Unable to convert the string into int.  %v", err)
-	}
-
 	// create an empty user of type models.User
-	var user models.User
+	var user models.LoginPayload
 
 	// decode the json request to user
-	err = json.NewDecoder(r.Body).Decode(&user)
+	err := json.NewDecoder(r.Body).Decode(&user)
 
 	if err != nil {
 		log.Fatalf("Unable to decode the request body.  %v", err)
 	}
 
-	// call update user to update the user
-	updatedRows := updateUser(int64(id), user)
+	// call insert user function and pass the user
+	jwt := login(user)
 
-	// format the message string
-	msg := fmt.Sprintf("User updated successfully. Total rows/record affected %v", updatedRows)
-
-	// format the response message
-	res := response{
-		ID:      int64(id),
-		Message: msg,
+	// format a response object
+	res := loginResponse{
+		Token:   jwt,
+		Message: "User created successfully",
 	}
 
 	// send the response
 	json.NewEncoder(w).Encode(res)
 }
 
-// DeleteUser delete user's detail in the postgres db
-func DeleteUser(w http.ResponseWriter, r *http.Request) {
+// ------------------------- handler functions ----------------
 
-	w.Header().Set("Context-Type", "application/x-www-form-urlencoded")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "DELETE")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-	// get the userid from the request params, key is "id"
-	params := mux.Vars(r)
-
-	// convert the id in string to int
-	id, err := strconv.Atoi(params["id"])
-
-	if err != nil {
-		log.Fatalf("Unable to convert the string into int.  %v", err)
-	}
-
-	// call the deleteUser, convert the int to int64
-	deletedRows := deleteUser(int64(id))
-
-	// format the message string
-	msg := fmt.Sprintf("User updated successfully. Total rows/record affected %v", deletedRows)
-
-	// format the reponse message
-	res := response{
-		ID:      int64(id),
-		Message: msg,
-	}
-
-	// send the response
-	json.NewEncoder(w).Encode(res)
-}
-
-
-//------------------------- handler functions ----------------
-// insert one user in the DB
-func insertUser(user models.User) int64 {
-
+// register user
+func register(user models.UserRegister) int64 {
 	// create the postgres db connection
 	db := createConnection()
 
 	// close the db connection
 	defer db.Close()
 
-	// create the insert sql query
-	// returning userid will return the id of the inserted user
-	sqlStatement := `INSERT INTO users (name, location, age) VALUES ($1, $2, $3) RETURNING userid`
-
-	// the inserted id will store in this id
-	var id int64
-
-	// execute the sql statement
-	// Scan function will save the insert id in the id
-	err := db.QueryRow(sqlStatement, user.Name, user.Location, user.Age).Scan(&id)
-
+	hassPassword, err := utils.HashPassword(user.Password)
 	if err != nil {
-		log.Fatalf("Unable to execute the query. %v", err)
+		log.Fatalf("Error preparing statement", err)
+		return 0
 	}
 
+	// create the insert sql query
+	// returning userid will return the id of the inserted user
+	sqlStatement := `INSERT INTO users (id, username, phone, image, password) VALUES (?, ?, ?, ?, ?) RETURNING id`
+	stmt, err := db.Prepare(sqlStatement)
+
+	if err != nil {
+		log.Fatalf("Error preparing statement", err)
+		return 0
+	}
+
+	res, err := stmt.Exec(uuid.New(), user.Username, user.Phone, user.Image, hassPassword)
+	if err != nil {
+		log.Fatalf("Error preparing statement %v", err)
+		return 0
+	}
+	id, err := res.LastInsertId()
+
+	if err != nil {
+		log.Fatalf("error retrieving last inserted ID: %v", err)
+	}
 	fmt.Printf("Inserted a single record %v", id)
 
 	// return the inserted id
 	return id
 }
 
-// get one user from the DB by its userid
-func getUser(id int64) (models.User, error) {
+// register user
+func login(user models.LoginPayload) string {
 	// create the postgres db connection
 	db := createConnection()
 
 	// close the db connection
 	defer db.Close()
 
-	// create a user of models.User type
-	var user models.User
+	// declare query and get user from db
+	query := "SELECT id, username, phone, image, password FROM users WHERE username = '" + user.Username + "'"
+	exist, err := getJSON(query)
 
-	// create the select sql query
-	sqlStatement := `SELECT * FROM users WHERE userid=$1`
+	//declare variable for store parses user data from db
+	var data []models.User
 
-	// execute the sql statement
-	row := db.QueryRow(sqlStatement, id)
-
-	// unmarshal the row object to user
-	err := row.Scan(&user.ID, &user.Name, &user.Age, &user.Location)
-
-	switch err {
-	case sql.ErrNoRows:
-		fmt.Println("No rows were returned!")
-		return user, nil
-	case nil:
-		return user, nil
-	default:
-		log.Fatalf("Unable to scan the row. %v", err)
+	if err := json.Unmarshal([]byte(exist), &data); err != nil {
+		fmt.Println("Error:", err)
+		return ""
 	}
 
-	// return empty user on error
-	return user, err
-}
+	isMatch := utils.CheckPasswordHash(user.Password, data[0].Password)
+	if isMatch != true {
+		log.Fatalf("Password is incorrect", err)
+		return ""
+	}
 
-// get one user from the DB by its userid
-func getAllUsers() ([]models.User, error) {
-	// create the postgres db connection
-	db := createConnection()
-
-	// close the db connection
-	defer db.Close()
-
-	var users []models.User
-
-	// create the select sql query
-	sqlStatement := `SELECT * FROM users`
-
-	// execute the sql statement
-	rows, err := db.Query(sqlStatement)
+	jwt, err := utils.GenerateJWT(data[0])
 
 	if err != nil {
-		log.Fatalf("Unable to execute the query. %v", err)
+		log.Fatalf("error generate jwt token", err)
+
 	}
 
-	// close the statement
+	return jwt
+}
+
+// getJSON select data from db then parse to json
+func getJSON(sqlString string) ([]byte, error) {
+	db := createConnection()
+	rows, err := db.Query(sqlString)
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+	count := len(columns)
+	tableData := make([]map[string]interface{}, 0)
+	values := make([]interface{}, count)
+	valuePtrs := make([]interface{}, count)
 
-	// iterate over the rows
 	for rows.Next() {
-		var user models.User
-
-		// unmarshal the row object to user
-		err = rows.Scan(&user.ID, &user.Name, &user.Age, &user.Location)
-
-		if err != nil {
-			log.Fatalf("Unable to scan the row. %v", err)
+		for i := 0; i < count; i++ {
+			valuePtrs[i] = &values[i]
 		}
-
-		// append the user in the users slice
-		users = append(users, user)
-
+		rows.Scan(valuePtrs...)
+		entry := make(map[string]interface{})
+		for i, col := range columns {
+			var v interface{}
+			val := values[i]
+			b, ok := val.([]byte)
+			if ok {
+				v = string(b)
+			} else {
+				v = val
+			}
+			entry[col] = v
+		}
+		tableData = append(tableData, entry)
 	}
-
-	// return empty user on error
-	return users, err
-}
-
-// update user in the DB
-func updateUser(id int64, user models.User) int64 {
-
-	// create the postgres db connection
-	db := createConnection()
-
-	// close the db connection
-	defer db.Close()
-
-	// create the update sql query
-	sqlStatement := `UPDATE users SET name=$2, location=$3, age=$4 WHERE userid=$1`
-
-	// execute the sql statement
-	res, err := db.Exec(sqlStatement, id, user.Name, user.Location, user.Age)
-
+	jsonData, err := json.Marshal(tableData)
 	if err != nil {
-		log.Fatalf("Unable to execute the query. %v", err)
+		return jsonData, err
 	}
 
-	// check how many rows affected
-	rowsAffected, err := res.RowsAffected()
-
-	if err != nil {
-		log.Fatalf("Error while checking the affected rows. %v", err)
-	}
-
-	fmt.Printf("Total rows/record affected %v", rowsAffected)
-
-	return rowsAffected
-}
-
-// delete user in the DB
-func deleteUser(id int64) int64 {
-
-	// create the postgres db connection
-	db := createConnection()
-
-	// close the db connection
-	defer db.Close()
-
-	// create the delete sql query
-	sqlStatement := `DELETE FROM users WHERE userid=$1`
-
-	// execute the sql statement
-	res, err := db.Exec(sqlStatement, id)
-
-	if err != nil {
-		log.Fatalf("Unable to execute the query. %v", err)
-	}
-
-	// check how many rows affected
-	rowsAffected, err := res.RowsAffected()
-
-	if err != nil {
-		log.Fatalf("Error while checking the affected rows. %v", err)
-	}
-
-	fmt.Printf("Total rows/record affected %v", rowsAffected)
-
-	return rowsAffected
+	return jsonData, nil
 }

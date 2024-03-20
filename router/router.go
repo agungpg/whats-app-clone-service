@@ -1,7 +1,9 @@
 package router
 
 import (
-	"go-crud/middleware"
+	"net/http"
+	"whats-app-clone-service/middleware"
+	"whats-app-clone-service/utils"
 
 	"github.com/gorilla/mux"
 )
@@ -11,11 +13,8 @@ func Router() *mux.Router {
 
 	router := mux.NewRouter()
 
-	router.HandleFunc("/api/user/{id}", middleware.GetUser).Methods("GET", "OPTIONS")
-	router.HandleFunc("/api/user", middleware.GetAllUser).Methods("GET", "OPTIONS")
-	router.HandleFunc("/api/newuser", middleware.CreateUser).Methods("POST", "OPTIONS")
-	router.HandleFunc("/api/user/{id}", middleware.UpdateUser).Methods("PUT", "OPTIONS")
-	router.HandleFunc("/api/deleteuser/{id}", middleware.DeleteUser).Methods("DELETE", "OPTIONS")
+	AuthRouter(router)
+	router.Handle("/api/user", utils.JWTMiddleware(http.HandlerFunc(middleware.GetAllUser))).Methods("GET")
 
 	return router
 }

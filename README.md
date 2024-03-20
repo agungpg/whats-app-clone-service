@@ -1,30 +1,17 @@
-# golang-crud-application
-This is a complete crud based GoLang application with ElephantSQL. ElephantSQL is a PostgreSQL database hosting service.
-***
-# Project Development Directory Structure
-***
-<pre>
-|- go-crud 
-    |- middleware
-        |- handlers.go
-    |- models
-        |- models.go
-    |- router
-        |- router.go
-    |- .env
-    |- main.go
-</pre>
-***
+# WhatsApp Clone Service
 
-# models
+This repository contains a WhatsApp clone service built using Golang. The service aims to replicate some of the core functionalities of WhatsApp, such as messaging, user management, and group chats.
 
-The models package will store the database schema. We will use struct type to represent or map the database schema in golang.
+## Features
 
-Create a new folder models in the go-crud project.
-Create a new file models.go in the models. (check file for the code)
+- User authentication and authorization
+- Sending and receiving messages
+- Creating and managing group chats
+- Real-time updates using WebSocket
 
-# middleware
+## Technologies Used
 
-The middleware package is the bridge between APIs and Database. This package will handle all the db operations like Insert, Select, Update, and Delete (CRUD).
-
-Create a new folder middleware in the go-crud project and create a new file handlers.go inside it. (check file for the code)
+- Golang (Go) programming language
+- MySQL for database storage
+- WebSocket for real-time communication
+- RESTful API for endpoints

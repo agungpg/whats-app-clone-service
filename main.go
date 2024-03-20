@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"go-crud/router"
 	"log"
 	"net/http"
+	"whats-app-clone-service/router"
 )
 
 func main() {
