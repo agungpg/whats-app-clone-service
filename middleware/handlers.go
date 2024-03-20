@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 	"whats-app-clone-service/models"
 	"whats-app-clone-service/utils"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
+	"github.com/joho/godotenv"
 
 	_ "golang.org/x/crypto/bcrypt"
 )
@@ -30,8 +32,14 @@ type loginResponse struct {
 // create connection with postgres db
 
 func createConnection() *sql.DB {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
 
-	db, err := sql.Open("mysql", "root:root@tcp(127.0.0.1:3306)/wa_clone_db")
+	databaseURL := os.Getenv("DB_CONNECTION_STRING")
+
+	db, err := sql.Open("mysql", databaseURL)
 
 	if err != nil {
 		panic(err.Error())
